@@ -1,8 +1,15 @@
 import React, { useState } from "react";
 import * as XLSX from "xlsx";
 import EquipmentInput from "./EquipmentInput";
+import TubeCanvas from "./TubeCanvas";
+import calculateMera from "../utils/calculateMera";
 
-function TubeUploader({ onNext }) {
+
+function TubeUploader({ onNext, wellParams }) {
+
+  // теперь ты получаешь wellParams как пропс
+
+
   // ======== TUBES ========
   const [file, setFile] = useState(null);             // файл с трубами
   const [sheets, setSheets] = useState([]);           // вкладки
@@ -248,7 +255,22 @@ function TubeUploader({ onNext }) {
     };
     reader.readAsArrayBuffer(equipmentFile);
   };
+  const [meraResult, setMeraResult] = useState(null);
 
+  const handleCalculate = () => {
+    const result = calculateMera({
+      depth: parseFloat(wellParams.depth),
+      shoeDepth: parseFloat(wellParams.shoeDepth),
+      hangerDepth: parseFloat(wellParams.hangerDepth),
+      hangerTolerance: parseFloat(wellParams.hangerTolerance),
+      tubes: tubeData,
+      patrubki: patrubData,
+      equipment: equipmentData,
+    });
+  
+    setMeraResult(result);
+  };
+  
   // ======================================================
   // ===============   FINAL SUBMIT  ======================
   // ======================================================
@@ -271,7 +293,12 @@ function TubeUploader({ onNext }) {
       equipment: equipmentData,
     });
   };
-
+  const mappedTubes = tubeData.map((row, index) => ({
+    number: row[mapping.pipeNumber] || index + 1,
+    length: parseFloat((row[mapping.length] || "").toString().replace(",", ".")) || 0,
+    row: row[mapping.row] || "1",
+  }));
+  
   // ======================================================
   // ===============   RENDER COMPONENT  ===================
   // ======================================================
@@ -283,7 +310,9 @@ function TubeUploader({ onNext }) {
         <input type="file" accept=".xlsx" onChange={handleTubeFileChange} className="input w-auto" />
         {file && <span className="text-sm text-gray-600">Файл: {file.name}</span>}
         {tubeData.length > 0 && (
-          <button
+         
+         
+         <button
             type="button"
             onClick={() => setShowTubePreview(true)}
             className="bg-gray-200 text-blue-600 text-sm px-3 py-1 rounded hover:bg-gray-300"
@@ -292,6 +321,47 @@ function TubeUploader({ onNext }) {
           </button>
         )}
       </div>
+
+
+
+      {tubeData.length > 0 && mapping.pipeNumber && mapping.length && (
+  <div className="mt-10">
+    <h2 className="text-lg font-bold text-blue-700 mb-2">Визуализация труб</h2>
+    <TubeCanvas tubes={mappedTubes} />
+  </div>
+)}
+
+{tubeData.length > 0 && (
+  <div className="mt-6 flex justify-end">
+    <button
+      type="button"
+      onClick={handleCalculate}
+      className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700"
+    >
+      Рассчитать меру
+    </button>
+  </div>
+)}
+
+{meraResult && (
+  <div className="bg-blue-50 border p-4 rounded mt-4">
+    <p><strong>Итоговая длина:</strong> {meraResult.finalLength.toFixed(2)} м</p>
+    <p><strong>В интервал установки:</strong> {meraResult.isWithinTarget ? "Да" : "Нет"}</p>
+    <p><strong>Превышение глубины скважины:</strong> {meraResult.exceedsDepth ? "Да" : "Нет"}</p>
+    {meraResult.selectedPatrubki.length > 0 && (
+      <div>
+        <strong>Подобранные патрубки:</strong>
+        <ul className="list-disc list-inside text-sm">
+          {meraResult.selectedPatrubki.map((p, i) => (
+            <li key={i}>{p.name || "Без названия"} — {p.length} м</li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </div>
+)}
+
+
       {/* Если есть несколько вкладок */}
       {sheets.length > 1 && (
         <div className="mt-2">
