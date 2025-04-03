@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-function WellParametersForm({ onNext }) {
+function WellParametersForm({ onNext, initialData }) {
   const [wellParams, setWellParams] = useState({
     wellNumber: "6334",
     wellPad: "46",
@@ -9,7 +9,7 @@ function WellParametersForm({ onNext }) {
     depth: "3348",
     shoeDepth: "3294",
     shoeTolerance: "2",
-    hangerDepth: "3200",
+    hangerDepth: "2600",
     hangerTolerance: "12",
     casingOD: "114.3",
     casingWeight: "23.8",
@@ -24,6 +24,31 @@ function WellParametersForm({ onNext }) {
     quantity: "",
     interval: "1/2",
   });
+
+  useEffect(() => {
+    if (initialData) {
+      console.log("📋 Загружаем сохраненные данные в форму:", initialData);
+      if (initialData.wellParams) {
+        setWellParams(prev => ({
+          ...prev,
+          ...initialData.wellParams
+        }));
+      } else {
+        setWellParams(prev => ({
+          ...prev,
+          depth: initialData.depth || prev.depth,
+          shoeDepth: initialData.shoeDepth || prev.shoeDepth,
+          shoeTolerance: initialData.shoeTolerance || prev.shoeTolerance,
+          hangerDepth: initialData.hangerDepth || prev.hangerDepth,
+          hangerTolerance: initialData.hangerTolerance || prev.hangerTolerance,
+        }));
+      }
+      
+      if (initialData.centralizer) {
+        setCentralizer(initialData.centralizer);
+      }
+    }
+  }, [initialData]);
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -87,7 +112,15 @@ function WellParametersForm({ onNext }) {
       return;
     }
 
-    onNext({ wellParams, centralizer });
+    onNext({ 
+      wellParams, 
+      centralizer,
+      depth: depthNum,
+      shoeDepth: shoeNum,
+      hangerDepth: hangerNum,
+      shoeTolerance: parseFloat(wellParams.shoeTolerance),
+      hangerTolerance: parseFloat(wellParams.hangerTolerance),
+    });
   };
 
   return (
@@ -187,10 +220,10 @@ function WellParametersForm({ onNext }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">ID Колонны (mm)</label>
+          <label className="block text-sm font-medium mb-1">Внутренний диаметр колонны (mm)</label>
           <input
             name="casingID"
-            placeholder="ID Колонны (mm)"
+            placeholder="Внутренний диаметр колонны"
             value={wellParams.casingID}
             onChange={handleParamChange}
             className="input"
@@ -211,7 +244,7 @@ function WellParametersForm({ onNext }) {
       <h2 className="text-xl font-bold text-blue-700 mt-6">Глубины установки</h2>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Глубина башмака ± допуск (м)</label>
+          <label className="block text-sm font-medium mb-1">Глубина башмака + допуск (м)</label>
           <div className="flex gap-2 items-center">
             <input
               name="shoeDepth"
@@ -221,9 +254,7 @@ function WellParametersForm({ onNext }) {
               className="input w-full"
             />
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => handleStepper("shoeTolerance", -1)} className="px-2 bg-gray-200 rounded">
-                −
-              </button>
+              <button type="button" onClick={() => handleStepper("shoeTolerance", -1)} className="px-2 bg-gray-200 rounded">−</button>
               <input
                 name="shoeTolerance"
                 type="number"
@@ -231,15 +262,13 @@ function WellParametersForm({ onNext }) {
                 onChange={handleParamChange}
                 className="input w-[80px] text-center"
               />
-              <button type="button" onClick={() => handleStepper("shoeTolerance", 1)} className="px-2 bg-gray-200 rounded">
-                +
-              </button>
+              <button type="button" onClick={() => handleStepper("shoeTolerance", 1)} className="px-2 bg-gray-200 rounded">+</button>
             </div>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Глубина подвески ± допуск (м)</label>
+          <label className="block text-sm font-medium mb-1">Глубина подвески + допуск (м)</label>
           <div className="flex gap-2 items-center">
             <input
               name="hangerDepth"
@@ -249,9 +278,7 @@ function WellParametersForm({ onNext }) {
               className="input w-full"
             />
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => handleStepper("hangerTolerance", -1)} className="px-2 bg-gray-200 rounded">
-                −
-              </button>
+              <button type="button" onClick={() => handleStepper("hangerTolerance", -1)} className="px-2 bg-gray-200 rounded">−</button>
               <input
                 name="hangerTolerance"
                 type="number"
@@ -259,13 +286,12 @@ function WellParametersForm({ onNext }) {
                 onChange={handleParamChange}
                 className="input w-[80px] text-center"
               />
-              <button type="button" onClick={() => handleStepper("hangerTolerance", 1)} className="px-2 bg-gray-200 rounded">
-                +
-              </button>
+              <button type="button" onClick={() => handleStepper("hangerTolerance", 1)} className="px-2 bg-gray-200 rounded">+</button>
             </div>
           </div>
         </div>
       </div>
+
 
       <h2 className="text-xl font-bold text-blue-700 mt-6">Параметры центраторов</h2>
       <div className="grid grid-cols-3 gap-4">

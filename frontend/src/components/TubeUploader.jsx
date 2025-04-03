@@ -292,6 +292,30 @@ function TubeUploader({ onNext, wellParams }) {
       },
       equipment: equipmentData,
     });
+
+    // Добавим отладочную информацию
+    console.log('📊 Передаем данные труб и патрубков далее:');
+    console.log('• Трубы (первые 5):', tubeData.slice(0, 5));
+    console.log('• Патрубки (первые 5):', patrubData.slice(0, 5));
+
+    // Показать примеры полей
+    if (tubeData.length > 0) {
+      console.log('• Поля труб:', Object.keys(tubeData[0]));
+      console.log('• Значения длины для первых 5 труб:');
+      tubeData.slice(0, 5).forEach((tube, i) => {
+        const lengthValue = tube[mapping.length] || tube['Длинна трубы, м'] || tube['Длина трубы, м'];
+        console.log(`  - Труба ${i+1}: ${lengthValue}`);
+      });
+    }
+
+    if (patrubData.length > 0) {
+      console.log('• Поля патрубков:', Object.keys(patrubData[0]));
+      console.log('• Значения длины для первых 5 патрубков:');
+      patrubData.slice(0, 5).forEach((patrub, i) => {
+        const lengthValue = patrub[patrubMapping.length] || patrub['Длинна трубы, м'] || patrub['Длина трубы, м'];
+        console.log(`  - Патрубок ${i+1}: ${lengthValue}`);
+      });
+    }
   };
   const mappedTubes = tubeData.map((row, index) => ({
     number: row[mapping.pipeNumber] || index + 1,
