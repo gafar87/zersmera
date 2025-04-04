@@ -1,15 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import EquipmentInput from "./EquipmentInput";
 import TubeCanvas from "./TubeCanvas";
 import calculateMera from "../utils/calculateMera";
 
-
-function TubeUploader({ onNext, wellParams }) {
-
-  // теперь ты получаешь wellParams как пропс
-
-
+function TubeUploader({ onNext, onBack = () => {}, wellParams }) {
   // ======== TUBES ========
   const [file, setFile] = useState(null);             // файл с трубами
   const [sheets, setSheets] = useState([]);           // вкладки
@@ -46,10 +41,54 @@ function TubeUploader({ onNext, wellParams }) {
   const [equipmentMapping, setEquipmentMapping] = useState({
     name: "",
     length: "",
-    interval: "",
+    plannedDepth: "",
     tolerance: "",
+    depth: "",
   });
   const [equipmentData, setEquipmentData] = useState([]);
+  
+  // ======== СОХРАНЕНИЕ ДАННЫХ В LOCALSTORAGE ========
+  // Загрузка данных из localStorage при монтировании компонента
+  useEffect(() => {
+    const savedData = localStorage.getItem('tubeUploader');
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData);
+        
+        // Восстанавливаем данные из localStorage
+        if (parsedData.tubeData) setTubeData(parsedData.tubeData);
+        if (parsedData.patrubData) setPatrubData(parsedData.patrubData);
+        if (parsedData.equipmentData) setEquipmentData(parsedData.equipmentData);
+        
+        // Восстанавливаем настройки маппинга
+        if (parsedData.mapping) setMapping(parsedData.mapping);
+        if (parsedData.patrubMapping) setPatrubMapping(parsedData.patrubMapping);
+        if (parsedData.equipmentMapping) setEquipmentMapping(parsedData.equipmentMapping);
+        
+        console.log('✅ Данные успешно восстановлены из localStorage');
+      } catch (error) {
+        console.error('Ошибка при восстановлении данных из localStorage:', error);
+      }
+    }
+  }, []);
+  
+  // Сохранение данных в localStorage при изменении
+  useEffect(() => {
+    if (tubeData.length > 0 || patrubData.length > 0 || equipmentData.length > 0) {
+      const dataToSave = {
+        tubeData,
+        patrubData,
+        equipmentData,
+        mapping,
+        patrubMapping,
+        equipmentMapping
+      };
+      
+      localStorage.setItem('tubeUploader', JSON.stringify(dataToSave));
+      console.log('💾 Данные сохранены в localStorage');
+    }
+  }, [tubeData, patrubData, equipmentData, mapping, patrubMapping, equipmentMapping]);
+
   const handleClearEquipment = () => setEquipmentData([]);
 
   // ======================================================
@@ -245,16 +284,35 @@ function TubeUploader({ onNext, wellParams }) {
       const workbook = XLSX.read(data, { type: "array" });
       const worksheet = workbook.Sheets[selectedEquipmentSheet];
       const json = XLSX.utils.sheet_to_json(worksheet);
-      const mapped = json.map((row) => ({
-        name: row[updated.name] || "",
-        length: parseFloat((row[updated.length] || "").toString().replace(",", ".")) || "",
-        interval: row[updated.interval] || "",
-        tolerance: parseFloat((row[updated.tolerance] || "").toString().replace(",", ".")) || "",
-      }));
+      const mapped = json.map((row) => {
+        // Получаем значения из таблицы
+        const name = row[updated.name] || "";
+        const length = parseFloat((row[updated.length] || "").toString().replace(",", ".")) || 0;
+        const plannedDepth = parseFloat((row[updated.plannedDepth] || "").toString().replace(",", ".")) || 0;
+        const tolerance = parseFloat((row[updated.tolerance] || "").toString().replace(",", ".")) || 0;
+        const depth = parseFloat((row[updated.depth] || "").toString().replace(",", ".")) || 0;
+        
+        // Рассчитываем интервал на основе плановой глубины и погрешности
+        const minDepth = plannedDepth > 0 ? plannedDepth - tolerance : '';
+        const maxDepth = plannedDepth > 0 ? plannedDepth + tolerance : '';
+        const interval = plannedDepth > 0 ? plannedDepth : '';
+        
+        return {
+          name,
+          length,
+          plannedDepth,
+          tolerance,
+          interval,
+          minDepth,
+          maxDepth,
+          depth
+        };
+      });
       setEquipmentData(mapped);
     };
     reader.readAsArrayBuffer(equipmentFile);
   };
+
   const [meraResult, setMeraResult] = useState(null);
 
   const handleCalculate = () => {
@@ -276,67 +334,289 @@ function TubeUploader({ onNext, wellParams }) {
   // ======================================================
   const handleSubmit = (e) => {
     e.preventDefault();
+    
+    // Проверяем данные перед отправкой
+    if (!validateData()) {
+      return;
+    }
+    
+    // Проверяем размер данных
+    if (!validateDataSize()) {
+      return;
+    }
+    
+    // Подготавливаем данные для передачи
+    const processedTubeData = tubeData.map((tube, index) => ({
+      ...tube,
+      number: tube[mapping.pipeNumber] || index + 1,
+      length: parseFloat((tube[mapping.length] || "").toString().replace(",", ".")) || 0,
+      manufacturer: tube[mapping.manufacturer] || "",
+      wallThickness: tube[mapping.wallThickness] || "",
+      row: tube[mapping.row] || "1",
+    }));
+    
+    const processedPatrubData = patrubData.map((patrub, index) => ({
+      ...patrub,
+      number: patrub[patrubMapping.number] || index + 1,
+      length: parseFloat((patrub[patrubMapping.length] || "").toString().replace(",", ".")) || 0,
+      name: patrub[patrubMapping.name] || `Патрубок ${index + 1}`,
+    }));
+    
     // Здесь отдаём всё, что нужно
     onNext({
       tubes: {
         file,
         sheet: selectedSheet,
         mapping,
-        data: tubeData,
+        data: processedTubeData,
       },
       patrubki: {
         file: patrubFile,
         sheet: selectedPatrubSheet,
         mapping: patrubMapping,
-        data: patrubData,
+        data: processedPatrubData,
       },
       equipment: equipmentData,
     });
 
-    // Добавим отладочную информацию
-    console.log('📊 Передаем данные труб и патрубков далее:');
-    console.log('• Трубы (первые 5):', tubeData.slice(0, 5));
-    console.log('• Патрубки (первые 5):', patrubData.slice(0, 5));
-
-    // Показать примеры полей
-    if (tubeData.length > 0) {
-      console.log('• Поля труб:', Object.keys(tubeData[0]));
-      console.log('• Значения длины для первых 5 труб:');
-      tubeData.slice(0, 5).forEach((tube, i) => {
-        const lengthValue = tube[mapping.length] || tube['Длинна трубы, м'] || tube['Длина трубы, м'];
-        console.log(`  - Труба ${i+1}: ${lengthValue}`);
-      });
-    }
-
-    if (patrubData.length > 0) {
-      console.log('• Поля патрубков:', Object.keys(patrubData[0]));
-      console.log('• Значения длины для первых 5 патрубков:');
-      patrubData.slice(0, 5).forEach((patrub, i) => {
-        const lengthValue = patrub[patrubMapping.length] || patrub['Длинна трубы, м'] || patrub['Длина трубы, м'];
-        console.log(`  - Патрубок ${i+1}: ${lengthValue}`);
-      });
-    }
+    console.log('📊 Переходим к расчету с данными:');
+    console.log('• Трубы:', processedTubeData.length);
+    console.log('• Патрубки:', processedPatrubData.length);
+    console.log('• Оборудование:', equipmentData);
   };
+
+  // Функция валидации данных перед переходом к расчетам
+  const validateData = () => {
+    // Проверка наличия необходимых данных
+    if (!tubeData || tubeData.length === 0) {
+      alert('Необходимо загрузить данные о трубах');
+      return false;
+    }
+    
+    if (!patrubData || patrubData.length === 0) {
+      alert('Необходимо загрузить данные о патрубках');
+      return false;
+    }
+    
+    if (!equipmentData || equipmentData.length === 0) {
+      alert('Необходимо добавить оборудование');
+      return false;
+    }
+    
+    // Проверка наличия подвески и башмака
+    const hasHanger = equipmentData.some(eq => 
+      eq.name && eq.name.toLowerCase().includes('подвеска')
+    );
+    
+    const hasShoe = equipmentData.some(eq => 
+      eq.name && eq.name.toLowerCase().includes('башмак')
+    );
+    
+    if (!hasHanger) {
+      alert('В списке оборудования должна быть подвеска (первый элемент)');
+      return false;
+    }
+    
+    if (!hasShoe) {
+      alert('В списке оборудования должен быть башмак (последний элемент)');
+      return false;
+    }
+    
+    // Проверка порядка элементов
+    const hangerIndex = equipmentData.findIndex(eq => 
+      eq.name && eq.name.toLowerCase().includes('подвеска')
+    );
+    
+    const shoeIndex = equipmentData.findIndex(eq => 
+      eq.name && eq.name.toLowerCase().includes('башмак')
+    );
+    
+    if (hangerIndex !== 0) {
+      alert('Подвеска должна быть первым элементом в списке оборудования');
+      return false;
+    }
+    
+    if (shoeIndex !== equipmentData.length - 1) {
+      alert('Башмак должен быть последним элементом в списке оборудования');
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Обработчик для предпросмотра/расчета меры
   const mappedTubes = tubeData.map((row, index) => ({
     number: row[mapping.pipeNumber] || index + 1,
     length: parseFloat((row[mapping.length] || "").toString().replace(",", ".")) || 0,
     row: row[mapping.row] || "1",
   }));
-  
+
+  const validateDataSize = () => {
+    const MAX_TUBES = 300;
+    const MAX_PATRUBKI = 50;
+    const MAX_EQUIPMENT = 100;
+    
+    let hasErrors = false;
+    let errorMessage = '';
+    
+    if (tubeData.length > MAX_TUBES) {
+      errorMessage += `Превышен лимит количества труб: ${tubeData.length}/${MAX_TUBES}. `;
+      hasErrors = true;
+    }
+    
+    if (patrubData.length > MAX_PATRUBKI) {
+      errorMessage += `Превышен лимит количества патрубков: ${patrubData.length}/${MAX_PATRUBKI}. `;
+      hasErrors = true;
+    }
+    
+    if (equipmentData.length > MAX_EQUIPMENT) {
+      errorMessage += `Превышен лимит количества оборудования: ${equipmentData.length}/${MAX_EQUIPMENT}. `;
+      hasErrors = true;
+    }
+    
+    if (hasErrors) {
+      alert(`⚠️ ${errorMessage}\nРекомендуется уменьшить количество элементов, иначе приложение может работать медленно или зависнуть.`);
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleClearStorage = () => {
+    if (confirm('Вы уверены, что хотите очистить все данные из локального хранилища? Это действие нельзя отменить.')) {
+      try {
+        console.log('🧹 Начинаем очистку хранилища...');
+        
+        // Явно перечисляем все ключи, которые нужно удалить
+        const keysToRemove = [
+          'calculationData',
+          'tubeUploader',
+          'wellParams',
+          'tubeData',
+          'patrubkiData',
+          'equipmentData'
+        ];
+        
+        // Удаляем каждый ключ и выводим в консоль 
+        keysToRemove.forEach(key => {
+          const value = localStorage.getItem(key);
+          console.log(`Удаляем ключ ${key}, текущее значение: ${value ? 'существует' : 'отсутствует'}`);
+          localStorage.removeItem(key);
+          console.log(`Проверка после удаления ${key}: ${localStorage.getItem(key) ? 'осталось' : 'удалено'}`);
+        });
+        
+        // Полная очистка всего хранилища в качестве резервного варианта
+        console.log('Очищаем всё хранилище...');
+        localStorage.clear();
+        
+        console.log('Проверка ключей после очистки:');
+        keysToRemove.forEach(key => {
+          console.log(`${key}: ${localStorage.getItem(key) ? 'осталось' : 'удалено'}`);
+        });
+        
+        // Сбрасываем состояние компонента
+        setTubeData([]);
+        setPatrubData([]);
+        setEquipmentData([]);
+        setFile(null);
+        setPatrubFile(null);
+        setEquipmentFile(null);
+        setColumns([]);
+        setPatrubColumns([]);
+        setEquipmentColumns([]);
+        setSheets([]);
+        setPatrubSheets([]);
+        setEquipmentSheets([]);
+        setSelectedSheet("");
+        setSelectedPatrubSheet("");
+        setSelectedEquipmentSheet("");
+        setMapping({
+          pipeNumber: "",
+          length: "",
+          manufacturer: "",
+          wallThickness: "",
+          row: "",
+        });
+        setPatrubMapping({
+          number: "",
+          length: "",
+          name: "",
+        });
+        setEquipmentMapping({
+          name: "",
+          length: "",
+          plannedDepth: "",
+          tolerance: "",
+          depth: "",
+        });
+        setShowTubePreview(false);
+        setShowPatrubPreview(false);
+        
+        alert('Локальное хранилище очищено. Страница будет перезагружена.');
+        
+        // Используем встроенный JavaScript метод для полной перезагрузки страницы
+        console.log('💥 Перезагружаем страницу...');
+        
+        // Сначала устанавливаем небольшую задержку
+        setTimeout(() => {
+          // Принудительно очищаем кэш и перезагружаем страницу
+          window.location.href = window.location.href.split('?')[0] + '?nocache=' + new Date().getTime();
+        }, 300);
+      } catch (error) {
+        console.error('❌ Ошибка при очистке хранилища:', error);
+        alert('Произошла ошибка при очистке хранилища: ' + error.message);
+      }
+    }
+  };
+
   // ======================================================
   // ===============   RENDER COMPONENT  ===================
   // ======================================================
   return (
     <form onSubmit={handleSubmit} className="space-y-10 bg-white p-6 rounded shadow-md max-w-4xl mx-auto mt-10">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold text-blue-800">Загрузка данных</h1>
+        <div className="flex gap-2">
+          {onBack && (
+            <button 
+              type="button" 
+              onClick={onBack} 
+              className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
+            >
+              ← Назад
+            </button>
+          )}
+          <button 
+            type="button" 
+            onClick={handleClearStorage} 
+            className="bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200"
+          >
+            🗑️ Очистить хранилище
+          </button>
+        </div>
+      </div>
+      
+      <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-md">
+        <p className="text-yellow-800">
+          <strong>⚠️ Ограничения:</strong> Рекомендуемые лимиты данных для стабильной работы приложения:
+        </p>
+        <ul className="list-disc ml-5 mt-1 text-yellow-800">
+          <li>Трубы: не более 300 шт.</li>
+          <li>Патрубки: не более 50 шт.</li>
+          <li>Оборудование: не более 100 шт.</li>
+        </ul>
+        <p className="text-yellow-800 mt-2">
+          При превышении лимитов приложение может работать медленно или зависнуть.
+        </p>
+      </div>
+      
       {/* ============= TUBES ============= */}
       <h2 className="text-xl font-bold text-blue-700">Загрузка труб</h2>
       <div className="flex items-center gap-2">
         <input type="file" accept=".xlsx" onChange={handleTubeFileChange} className="input w-auto" />
         {file && <span className="text-sm text-gray-600">Файл: {file.name}</span>}
         {tubeData.length > 0 && (
-         
-         
-         <button
+          <button
             type="button"
             onClick={() => setShowTubePreview(true)}
             className="bg-gray-200 text-blue-600 text-sm px-3 py-1 rounded hover:bg-gray-300"
@@ -346,47 +626,15 @@ function TubeUploader({ onNext, wellParams }) {
         )}
       </div>
 
-
-
+      {/* Визуализация труб */}
       {tubeData.length > 0 && mapping.pipeNumber && mapping.length && (
-  <div className="mt-10">
-    <h2 className="text-lg font-bold text-blue-700 mb-2">Визуализация труб</h2>
-    <TubeCanvas tubes={mappedTubes} />
-  </div>
-)}
+        <div className="mt-10">
+          <h2 className="text-lg font-bold text-blue-700 mb-2">Визуализация труб</h2>
+          <TubeCanvas tubes={mappedTubes} />
+        </div>
+      )}
 
-{tubeData.length > 0 && (
-  <div className="mt-6 flex justify-end">
-    <button
-      type="button"
-      onClick={handleCalculate}
-      className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700"
-    >
-      Рассчитать меру
-    </button>
-  </div>
-)}
-
-{meraResult && (
-  <div className="bg-blue-50 border p-4 rounded mt-4">
-    <p><strong>Итоговая длина:</strong> {meraResult.finalLength.toFixed(2)} м</p>
-    <p><strong>В интервал установки:</strong> {meraResult.isWithinTarget ? "Да" : "Нет"}</p>
-    <p><strong>Превышение глубины скважины:</strong> {meraResult.exceedsDepth ? "Да" : "Нет"}</p>
-    {meraResult.selectedPatrubki.length > 0 && (
-      <div>
-        <strong>Подобранные патрубки:</strong>
-        <ul className="list-disc list-inside text-sm">
-          {meraResult.selectedPatrubki.map((p, i) => (
-            <li key={i}>{p.name || "Без названия"} — {p.length} м</li>
-          ))}
-        </ul>
-      </div>
-    )}
-  </div>
-)}
-
-
-      {/* Если есть несколько вкладок */}
+      {/* Выбор вкладки и маппинг полей для труб */}
       {sheets.length > 1 && (
         <div className="mt-2">
           <label className="text-sm font-medium">Выберите лист</label>
@@ -397,7 +645,7 @@ function TubeUploader({ onNext, wellParams }) {
           </select>
         </div>
       )}
-      {/* Выбор столбцов */}
+      
       {columns.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mt-2">
           {[
@@ -440,6 +688,8 @@ function TubeUploader({ onNext, wellParams }) {
           </button>
         )}
       </div>
+      
+      {/* Выбор вкладки и маппинг полей для патрубков */}
       {patrubSheets.length > 1 && (
         <div className="mt-2">
           <label className="text-sm font-medium">Выберите лист</label>
@@ -450,6 +700,7 @@ function TubeUploader({ onNext, wellParams }) {
           </select>
         </div>
       )}
+      
       {patrubColumns.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mt-2">
           {[
@@ -487,7 +738,7 @@ function TubeUploader({ onNext, wellParams }) {
         {equipmentFile && <span className="text-sm text-gray-600">Файл: {equipmentFile.name}</span>}
       </div>
 
-      {/* Если несколько вкладок */}
+      {/* Выбор вкладки для оборудования */}
       {equipmentSheets.length > 1 && (
         <div className="mt-2">
           <label className="text-sm font-medium">Выберите лист</label>
@@ -503,14 +754,15 @@ function TubeUploader({ onNext, wellParams }) {
         </div>
       )}
 
-      {/* Выбор столбцов */}
+      {/* Маппинг полей для оборудования */}
       {equipmentColumns.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mt-2">
           {[
             { label: "Название", name: "name" },
             { label: "Длина", name: "length" },
-            { label: "Интервал", name: "interval" },
-            { label: "Допуск ±", name: "tolerance" },
+            { label: "Плановая глубина", name: "plannedDepth" },
+            { label: "Погрешность ±", name: "tolerance" },
+            { label: "Глубина", name: "depth" },
           ].map(({ label, name }) => (
             <div key={name}>
               <label className="block text-sm font-medium">{label}</label>
@@ -530,7 +782,7 @@ function TubeUploader({ onNext, wellParams }) {
         </div>
       )}
 
-      {/* Само редактирование перетаскиваемого списка */}
+      {/* Редактирование списка оборудования */}
       <EquipmentInput onChange={setEquipmentData} initialData={equipmentData} />
       <div className="mt-4">
         <button
@@ -542,10 +794,21 @@ function TubeUploader({ onNext, wellParams }) {
         </button>
       </div>
 
+      {/* Важное сообщение о порядке оборудования */}
+      <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-md">
+        <p className="text-yellow-800">
+          <strong>⚠️ Важно:</strong> Первым элементом в списке оборудования должна быть <strong>подвеска</strong>, 
+          а последним — <strong>башмак</strong>. Используйте перетаскивание для правильного порядка элементов.
+        </p>
+      </div>
+
       {/* SUBMIT */}
       <div className="flex justify-end mt-6">
-        <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
-          Далее
+        <button 
+          type="submit" 
+          className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+        >
+          Перейти к расчету
         </button>
       </div>
 

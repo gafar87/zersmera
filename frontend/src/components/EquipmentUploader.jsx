@@ -24,8 +24,9 @@ const EquipmentUploader = ({ onNext, onBack, wellParams }) => {
     
     // Для демонстрации просто создаем примерные данные
     setTimeout(() => {
+      const totalDepth = wellParams?.depth || 3300;
       const newEquipment = [
-        { name: 'Пакер подвеска', length: 2.6, interval: wellParams?.hangerDepth || 2200, tolerance: 30 },
+        { name: 'Пакер подвеска', length: 2.6, interval: 0, tolerance: 30 },
         { name: 'Пакер обсаженного ствола', length: 0.72, interval: 2620.92, tolerance: 3 },
         { name: 'Пакер открытого ствола', length: 0.72, interval: 2690.19, tolerance: 3 },
         { name: 'Пакер открытого ствола', length: 0.72, interval: 2758.88, tolerance: 3 },
@@ -39,7 +40,7 @@ const EquipmentUploader = ({ onNext, onBack, wellParams }) => {
         { name: 'Пакер открытого ствола', length: 0.72, interval: 3222.96, tolerance: 3 },
         { name: 'Муфта ГРП ФПР.114', length: 0.85, interval: 3268.46, tolerance: 3 },
         { name: 'Гидравлически фрак порт', length: 1.3, interval: 3269.31, tolerance: 3 },
-        { name: 'Башмак', length: 0.25, interval: wellParams?.shoeDepth || 3294, tolerance: 3 }
+        { name: 'Башмак', length: 0.25, interval: totalDepth, tolerance: 3 }
       ];
       
       setEquipment(newEquipment);
@@ -84,11 +85,11 @@ const EquipmentUploader = ({ onNext, onBack, wellParams }) => {
   const handleSubmit = () => {
     // Проверка на пустые поля
     const hasEmptyFields = equipment.some(item => 
-      !item.name || !item.length || !item.interval || !item.tolerance
+      !item.name || !item.length
     );
     
     if (hasEmptyFields) {
-      alert('Заполните все поля для оборудования');
+      alert('Заполните название и длину для всего оборудования');
       return;
     }
     
@@ -137,12 +138,6 @@ const EquipmentUploader = ({ onNext, onBack, wellParams }) => {
           <div className="params-grid">
             <div>Глубина скважины:</div>
             <div>{wellParams?.depth || 'Не указана'} м</div>
-            
-            <div>Глубина башмака:</div>
-            <div>{wellParams?.shoeDepth || 'Не указана'} м (±{wellParams?.shoeTolerance || 3} м)</div>
-            
-            <div>Глубина подвески:</div>
-            <div>{wellParams?.hangerDepth || 'Не указана'} м (±{wellParams?.hangerTolerance || 30} м)</div>
           </div>
         </div>
       </div>

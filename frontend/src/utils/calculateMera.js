@@ -5,12 +5,10 @@
  * 
  * @param {Object} params
  * @param {number} params.depth        - Глубина скважины (максимум)
- * @param {number} params.shoeDepth    - Глубина башмака (можно учесть ± допуск)
- * @param {number} params.hangerDepth  - Глубина подвески (верхний элемент), можно учесть допуск
  * @param {Array}  tubes               - Массив труб [{ number, length, row }, ...]
  * @param {Array}  patrubki            - Массив патрубков [{ number, length, name }, ...]
  * @param {Array}  equipment           - Массив оборудования 
- *                                       [{ name, length, interval, tolerance }, ...]
+ *                                       [{ name, length, plannedDepth, tolerance, depth }, ...]
  * 
  * Возвращает массив результатов, каждый элемент описывает:
  *   - equipmentName       (string)
@@ -28,8 +26,6 @@ export default function calculateMera(
 ) {
   // Проверяем, как были переданы параметры
   const depth = params.depth || 0;
-  const shoeDepth = params.shoeDepth || 0;
-  const hangerDepth = params.hangerDepth || 0;
   
   // Определяем, были ли параметры переданы отдельно или в объекте
   let tubes = tubesParam || params.tubes || [];
@@ -38,10 +34,9 @@ export default function calculateMera(
 
   console.log('🔧 Начинаем расчёт меры:');
   console.log('• Глубина скважины:', depth);
-  console.log('• Глубина башмака:', shoeDepth);
-  console.log('• Интервал установки подвески:', hangerDepth, '±', equipment[0]?.tolerance);
   console.log('• Количество труб:', tubes?.length);
   console.log('• Количество патрубков:', patrubki?.length);
+  console.log('• Количество элементов оборудования:', equipment?.length);
 
   // Проверяем входные данные
   if (!tubes || !tubes.length || !equipment || !equipment.length) {
@@ -69,7 +64,7 @@ export default function calculateMera(
   const getTubeNumber = (tube, index) => {
     return tube.number || tube['№№  п/п'] || tube['Номер трубы'] || tube.row || tube.id || `Т-${index + 1}`;
   };
-
+  
   // Копируем массивы и убеждаемся, что длины корректно преобразованы
   let availableTubes = tubes.map((tube, index) => ({
     ...tube,
@@ -80,25 +75,18 @@ export default function calculateMera(
   let availablePatrubki = [];
   if (patrubki && patrubki.length) {
     availablePatrubki = patrubki.map((pat, index) => ({
-      ...pat,
-      number: pat.number || pat['№№  п/п'] || 'П-' + (pat.row || index + 1),
-      length: getTubeLength(pat)
-    })).filter(pat => pat.length > 0); // Отфильтровываем патрубки с нулевой длиной
+    ...pat,
+    number: pat.number || pat['№№  п/п'] || 'П-' + (pat.row || index + 1),
+    length: getTubeLength(pat)
+  })).filter(pat => pat.length > 0); // Отфильтровываем патрубки с нулевой длиной
   }
 
-  // Сортируем трубы по номеру - это важно для правильного порядка от 1 до N
-  availableTubes.sort((a, b) => {
-    const numA = parseInt(a.number.toString().replace(/\D/g, '')) || 0;
-    const numB = parseInt(b.number.toString().replace(/\D/g, '')) || 0;
-    return numA - numB;
-  });
+  // Сортируем трубы по длине для оптимального заполнения (от длинных к коротким)
+  availableTubes.sort((a, b) => b.length - a.length);
 
   // Выводим информацию о трубах для отладки
   let totalTubesLength = 0;
-  availableTubes.forEach((tube, index) => {
-    if (index < 10) { // Для экономии лога показываем только первые 10 труб
-      console.log(`🧱 Труба ${tube.number}: ${tube.length} м`);
-    }
+  availableTubes.forEach(tube => {
     totalTubesLength += tube.length;
   });
   console.log(`🧱 Всего длина труб: ${totalTubesLength.toFixed(2)} м (${availableTubes.length} шт)`);
@@ -106,237 +94,171 @@ export default function calculateMera(
   // Выводим информацию о патрубках для отладки
   if (availablePatrubki.length > 0) {
     let totalPatrubkiLength = 0;
-    availablePatrubki.forEach((pat, index) => {
-      if (index < 10) { // Для экономии лога показываем только первые 10 патрубков
-        console.log(`🔧 Патрубок ${pat.number}: ${pat.length} м`);
-      }
+    availablePatrubki.forEach(pat => {
       totalPatrubkiLength += pat.length;
     });
     console.log(`🔧 Всего длина патрубков: ${totalPatrubkiLength.toFixed(2)} м (${availablePatrubki.length} шт)`);
   }
 
   // -------------------------------------------------------------------------
-  // НОВАЯ ЛОГИКА: Сначала сортируем оборудование по убыванию глубины
+  // НОВАЯ ЛОГИКА: Расчет глубин установки оборудования
   // -------------------------------------------------------------------------
   
-  // Копируем и сортируем оборудование от большей глубины (башмак) к меньшей (подвеска)
+  // Сортируем оборудование - подвеска должна быть первой, башмак последним
   const sortedEquipment = [...equipment].sort((a, b) => {
-    const depthA = safeParseFloat(a.interval);
-    const depthB = safeParseFloat(b.interval);
-    return depthB - depthA;
+    // Башмак всегда последний
+    if (a.name.toLowerCase().includes('башмак')) return 1;
+    if (b.name.toLowerCase().includes('башмак')) return -1;
+    // Подвеска всегда первая
+    if (a.name.toLowerCase().includes('подвеска')) return -1;
+    if (b.name.toLowerCase().includes('подвеска')) return 1;
+    // По глубине (от меньшей к большей)
+    return safeParseFloat(a.depth) - safeParseFloat(b.depth);
   });
   
-  // Результаты расчетов (будут хранить список опорных точек с оборудованием)
+  // Результаты для каждого элемента оборудования
   const results = [];
   
-  // Используемые трубы (для предотвращения повторного использования)
-  const usedTubes = [];
+  // Копируем массивы труб и патрубков для распределения
+  let remainingTubes = [...availableTubes];
+  let remainingPatrubki = [...availablePatrubki];
   
-  // Шаг 1: Начинаем с башмака и добавляем его как первый элемент
-  const shoe = sortedEquipment.find(eq => eq.name.toLowerCase().includes('башмак'));
-  if (!shoe) {
-    console.error('❌ Не найден башмак в списке оборудования');
-    return [];
-  }
-  
-  const shoeDepthTarget = safeParseFloat(shoe.interval);
-  const shoeLength = safeParseFloat(shoe.length);
-  
-  console.log(`📍 Башмак устанавливается на глубине ${shoeDepthTarget} м`);
-  
-  // Добавляем башмак как первый элемент (он самый глубокий)
-  results.push({
-    equipmentName: shoe.name,
-    tubesUsed: [],
-    patrubkiUsed: [],
-    topDepth: shoeDepthTarget - shoeLength, // Верх башмака
-    bottomDepth: shoeDepthTarget, // Низ башмака (собственно глубина)
-    note: "Начало отсчета - башмак"
-  });
-  
-  // Текущая глубина - верх башмака (от него будем идти вверх)
-  let currentDepth = shoeDepthTarget - shoeLength;
-  let tubeCounter = 1; // Счётчик труб, начиная от башмака
-  
-  // Добавляем остальное оборудование по убыванию глубины
-  // Перебираем оборудование, исключая башмак, который уже добавили
+  // Устанавливаем глубины для каждого элемента оборудования
   for (let i = 0; i < sortedEquipment.length; i++) {
     const eq = sortedEquipment[i];
+    const isBashmak = eq.name.toLowerCase().includes('башмак');
+    const isHanger = eq.name.toLowerCase().includes('подвеска');
     
-    // Пропускаем башмак (он уже добавлен)
-    if (eq.name.toLowerCase().includes('башмак')) {
-      continue;
+    // Определяем глубину на основе типа оборудования или указанной глубины
+    let topDepth;
+    
+    if (eq.depth) {
+      // Используем указанную глубину, если она есть
+      topDepth = safeParseFloat(eq.depth);
+    } else if (isBashmak) {
+      // Для башмака: глубина скважины минус длина башмака
+      topDepth = safeParseFloat(depth) - safeParseFloat(eq.length);
+    } else if (isHanger) {
+      // Для подвески: начало скважины
+      topDepth = 0;
+    } else {
+      // Если глубина не указана, интерполируем между соседними элементами
+      const hangerDepth = sortedEquipment.find(e => e.name.toLowerCase().includes('подвеска'))?.depth || 0;
+      const bashmakDepth = sortedEquipment.find(e => e.name.toLowerCase().includes('башмак'))?.depth || depth;
+      const eqIndex = sortedEquipment.indexOf(eq);
+      const hangerIndex = sortedEquipment.findIndex(e => e.name.toLowerCase().includes('подвеска'));
+      const bashmakIndex = sortedEquipment.findIndex(e => e.name.toLowerCase().includes('башмак'));
+      
+      if (hangerIndex !== -1 && bashmakIndex !== -1) {
+        const totalElements = sortedEquipment.length - 2; // без башмака и подвески
+        const depthRange = bashmakDepth - hangerDepth;
+        const step = depthRange / (totalElements + 1);
+        const positionFromTop = eqIndex - hangerIndex - 1;
+        topDepth = hangerDepth + step * positionFromTop;
+      } else {
+        topDepth = 0;
+      }
     }
     
-    const eqName = eq.name;
-    const eqLength = safeParseFloat(eq.length);
-    const targetDepth = safeParseFloat(eq.interval);
-    const tolerance = safeParseFloat(eq.tolerance) || 1;
+    // Расчет нижней глубины (топ + длина оборудования)
+    const length = safeParseFloat(eq.length);
+    const bottomDepth = topDepth + length;
     
-    console.log(`⚙️ ${eqName}: целевая глубина ${targetDepth} м ± ${tolerance} м`);
-    console.log(`📏 Текущая глубина (верх): ${currentDepth.toFixed(2)} м, цель: ${targetDepth} м`);
+    // Определяем плановую глубину и допуск
+    // Сначала проверяем plannedDepth, затем fallback на interval для обратной совместимости
+    const plannedDepth = safeParseFloat(eq.plannedDepth || eq.interval || 0);
+    const tolerance = safeParseFloat(eq.tolerance || 0);
     
-    // Нам нужно добраться до низа этого оборудования, который должен быть на целевой глубине
-    // Для этого нам нужно добавить трубы между текущей глубиной и целевой глубиной
-    const targetBottom = targetDepth;
-    const targetTop = targetBottom - eqLength;
+    // Рассчитываем минимальную и максимальную глубину на основе плановой глубины и допуска
+    const minDepth = plannedDepth > 0 ? plannedDepth - tolerance : null;
+    const maxDepth = plannedDepth > 0 ? plannedDepth + tolerance : null;
     
-    // Расстояние, которое нужно пройти трубами от текущей глубины до верха целевого оборудования
-    const distanceNeeded = currentDepth - targetTop;
+    // Проверяем, находится ли оборудование в пределах допустимого интервала
+    let note = "";
+    if (plannedDepth > 0 && tolerance > 0) {
+      if (bottomDepth < minDepth) {
+        note = `Не достигнута целевая глубина (${bottomDepth.toFixed(2)} < ${minDepth.toFixed(2)})`;
+      } else if (bottomDepth > maxDepth) {
+        note = `Превышена целевая глубина (${bottomDepth.toFixed(2)} > ${maxDepth.toFixed(2)})`;
+      } else {
+        note = `В пределах допуска (${minDepth.toFixed(2)} - ${maxDepth.toFixed(2)})`;
+      }
+    }
     
-    console.log(`👉 Нужно пройти вверх: ${distanceNeeded.toFixed(2)} м труб до верха оборудования`);
+    // Проверяем, не превышает ли низ оборудования глубину скважины
+    if (bottomDepth > depth) {
+      note = `Ошибка: превышена глубина скважины (${bottomDepth.toFixed(2)} > ${depth.toFixed(2)})`;
+    }
     
-    // Подбираем трубы для прохождения расстояния
-    let tubesForSegment = [];
-    let patrubkiForSegment = [];
-    let cumulativeTubeLength = 0;
+    // Заполняем трубы между текущим элементом и предыдущим
+    const tubesUsed = [];
+    const patrubkiUsed = [];
     
-    // Берем трубы последовательно, начиная с трубы №1
-    const availableTubesForUse = availableTubes.filter(t => !usedTubes.includes(t.number));
-    
-    // Сначала попробуем использовать последовательно трубы с номерами tubeCounter, tubeCounter+1, ...
-    for (let idx = 0; idx < availableTubesForUse.length && cumulativeTubeLength < distanceNeeded; idx++) {
-      const tube = availableTubesForUse[idx];
+    // Если это не первый элемент, заполняем промежуток трубами
+    if (i > 0) {
+      const prevElement = results[i - 1];
+      const distanceBetween = topDepth - prevElement.bottomDepth;
       
-      // Маркируем номером tubeCounter в результате 
-      const numberedTube = {
-        ...tube,
-        sequentialNumber: tubeCounter++  // Используем счётчик для правильной нумерации
-      };
-      
-      // Добавляем трубу
-      tubesForSegment.push(numberedTube);
-      usedTubes.push(tube.number);
-      cumulativeTubeLength += tube.length;
-      
-      console.log(`+ Труба №${tubeCounter-1} (${tube.number}): ${tube.length} м (суммарно: ${cumulativeTubeLength.toFixed(2)} м)`);
-      
-      // Проверяем, не превысили ли мы целевую длину
-      if (cumulativeTubeLength > distanceNeeded + tolerance) {
-        // Если превысили допустимый предел, нужна компенсация патрубками
-        const excess = cumulativeTubeLength - distanceNeeded;
-        console.log(`⚠️ Трубы слишком длинные, превышение: ${excess.toFixed(2)} м, нужна компенсация патрубками`);
+      if (distanceBetween > 0) {
+        // Сначала используем трубы
+        let remainingDistance = distanceBetween;
+        let usedTubeIndices = [];
         
-        // Подбираем патрубки для компенсации
-        if (availablePatrubki.length > 0) {
-          console.log(`🔍 Ищем подходящие патрубки для компенсации ${excess.toFixed(2)} м`);
+        // Проходим по всем доступным трубам и пытаемся заполнить пространство
+        for (let j = 0; j < remainingTubes.length && remainingDistance > 0; j++) {
+          const tube = remainingTubes[j];
+          if (tube.length <= remainingDistance) {
+            tubesUsed.push({ ...tube });
+            usedTubeIndices.push(j);
+            remainingDistance -= tube.length;
+          }
+        }
+        
+        // Удаляем использованные трубы из списка доступных (в обратном порядке)
+        for (let j = usedTubeIndices.length - 1; j >= 0; j--) {
+          remainingTubes.splice(usedTubeIndices[j], 1);
+        }
+        
+        // Если остался промежуток, заполняем патрубками
+        if (remainingDistance > 0) {
+          let usedPatrubkiIndices = [];
           
-          // Сортируем патрубки по убыванию длины, чтобы брать сначала длинные
-          const sortedPatrubki = [...availablePatrubki].sort((a, b) => b.length - a.length);
-          
-          // Ищем патрубок, максимально близкий к excess но меньше его
-          let bestPatrubokIndex = -1;
-          let bestFit = -Infinity;
-          
-          for (let p = 0; p < sortedPatrubki.length; p++) {
-            const patLength = sortedPatrubki[p].length;
-            if (patLength <= excess && patLength > bestFit) {
-              bestPatrubokIndex = p;
-              bestFit = patLength;
+          for (let j = 0; j < remainingPatrubki.length && remainingDistance > 0; j++) {
+            const patrubka = remainingPatrubki[j];
+            if (patrubka.length <= remainingDistance) {
+              patrubkiUsed.push({ ...patrubka });
+              usedPatrubkiIndices.push(j);
+              remainingDistance -= patrubka.length;
             }
           }
           
-          if (bestPatrubokIndex !== -1) {
-            // Нашли подходящий патрубок
-            const pat = sortedPatrubki[bestPatrubokIndex];
-            patrubkiForSegment.push(pat);
-            console.log(`✅ Используем патрубок ${pat.number} длиной ${pat.length} м`);
-            
-            // Удаляем использованный патрубок из доступных
-            availablePatrubki = availablePatrubki.filter(p => p.number !== pat.number);
-            
-            // Если нужны дополнительные патрубки
-            const remaining = excess - pat.length;
-            if (remaining > 0.1) {
-              console.log(`⚠️ Требуется ещё компенсация на ${remaining.toFixed(2)} м`);
-              
-              // Ищем дополнительные патрубки
-              while (availablePatrubki.length > 0) {
-                const nextBestIndex = availablePatrubki.findIndex(p => p.length <= remaining);
-                if (nextBestIndex !== -1) {
-                  const nextPat = availablePatrubki[nextBestIndex];
-                  patrubkiForSegment.push(nextPat);
-                  console.log(`+ Дополнительный патрубок ${nextPat.number}: ${nextPat.length} м`);
-                  
-                  // Удаляем использованный патрубок
-                  availablePatrubki.splice(nextBestIndex, 1);
-                  break;
-                } else {
-                  // Нет подходящих патрубков
-                  console.log('⚠️ Нет подходящих патрубков для дополнительной компенсации');
-                  break;
-                }
-              }
-            }
-          } else {
-            console.log('⚠️ Нет подходящих патрубков для компенсации превышения');
+          // Удаляем использованные патрубки
+          for (let j = usedPatrubkiIndices.length - 1; j >= 0; j--) {
+            remainingPatrubki.splice(usedPatrubkiIndices[j], 1);
           }
-        } else {
-          console.log('⚠️ Нет доступных патрубков для компенсации');
         }
       }
-      
-      // Если достигли или превысили нужную длину, прерываем цикл
-      if (cumulativeTubeLength >= distanceNeeded) {
-        break;
-      }
     }
     
-    // Вычисляем итоговую глубину с учетом труб и патрубков
-    const totalPatrubkiLength = patrubkiForSegment.reduce((sum, pat) => sum + pat.length, 0);
-    const adjustedTubeLength = cumulativeTubeLength - totalPatrubkiLength;
-    
-    // Вычисляем новую текущую глубину (верхняя точка установленного оборудования)
-    const actualBottom = currentDepth - adjustedTubeLength;
-    const actualTop = actualBottom - eqLength;
-    
-    // Сохраняем информацию о стартовой глубине для каждой трубы
-    if (tubesForSegment.length > 0) {
-      let tubeStartDepth = currentDepth; // Начинаем с текущей глубины (верх башмака или предыдущего элемента)
-      
-      for (let t = 0; t < tubesForSegment.length; t++) {
-        // Для первой трубы после башмака: startDepth = верх башмака
-        tubesForSegment[t].startDepth = tubeStartDepth; 
-        // Для следующей трубы: startDepth = верх текущей трубы - ее длина
-        tubeStartDepth -= tubesForSegment[t].length;
-      }
-    }
-    
-    // Формируем комментарий
-    let note = "Интервал соблюден";
-    
-    // Проверяем попадание в интервал
-    const minAllowedDepth = targetDepth - tolerance;
-    const maxAllowedDepth = targetDepth + tolerance;
-    
-    if (actualBottom < minAllowedDepth) {
-      note = `Не достигнута минимальная глубина (${minAllowedDepth.toFixed(2)} м)`;
-      console.log(`⚠️ ${note}`);
-    } else if (actualBottom > maxAllowedDepth) {
-      note = `Превышена максимальная глубина (${maxAllowedDepth.toFixed(2)} м)`;
-      console.log(`⚠️ ${note}`);
-    } else {
-      console.log(`✅ Интервал соблюден: ${actualBottom.toFixed(2)} м попадает в [${minAllowedDepth.toFixed(2)}, ${maxAllowedDepth.toFixed(2)}] м`);
-    }
-    
-    // Добавляем результат
+    // Создаем результат для этого элемента оборудования
     results.push({
-      equipmentName: eqName,
-      tubesUsed: tubesForSegment,
-      patrubkiUsed: patrubkiForSegment,
-      topDepth: actualTop,
-      bottomDepth: actualBottom,
-      note: note
+      equipmentName: eq.name,
+      topDepth: topDepth,
+      bottomDepth: bottomDepth,
+      tubesUsed: tubesUsed,
+      patrubkiUsed: patrubkiUsed,
+      note: note,
+      plannedDepth: plannedDepth,
+      tolerance: tolerance,
+      minDepth: minDepth,
+      maxDepth: maxDepth,
+      equipmentId: eq.id || i + 1 // Добавляем id для однозначной идентификации
     });
-    
-    // Обновляем текущую глубину для следующего сегмента
-    currentDepth = actualTop;
-    
-    console.log(`✓ ${eqName} установлен на глубине ${actualBottom.toFixed(2)} м (верх: ${actualTop.toFixed(2)} м)`);
-    console.log('-----------------------------------');
   }
   
-  // Переворачиваем результаты, чтобы они шли в порядке сверху вниз
-  // (от подвески, которая ближе к поверхности, к башмаку, который глубже всех)
-  return results.reverse();
+  // Сортируем результаты от меньшей глубины (подвеска) к большей (башмак)
+  results.sort((a, b) => a.topDepth - b.topDepth);
+  
+  // Возвращаем результаты
+  return results;
 }

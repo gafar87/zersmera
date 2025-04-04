@@ -7,12 +7,8 @@ function WellParametersForm({ onNext, initialData }) {
     field: "Ем-Еговский + Пальяновский ЛУ",
     runDate: "2025-03-12",
     depth: "3348",
-    shoeDepth: "3294",
-    shoeTolerance: "2",
-    hangerDepth: "2600",
-    hangerTolerance: "12",
     casingOD: "114.3",
-    casingWeight: "23.8",
+    casingWeight: "",
     casingSteel: "P-110",
     casingID: "97.1",
     openHole: "155.6",
@@ -37,10 +33,6 @@ function WellParametersForm({ onNext, initialData }) {
         setWellParams(prev => ({
           ...prev,
           depth: initialData.depth || prev.depth,
-          shoeDepth: initialData.shoeDepth || prev.shoeDepth,
-          shoeTolerance: initialData.shoeTolerance || prev.shoeTolerance,
-          hangerDepth: initialData.hangerDepth || prev.hangerDepth,
-          hangerTolerance: initialData.hangerTolerance || prev.hangerTolerance,
         }));
       }
       
@@ -49,6 +41,32 @@ function WellParametersForm({ onNext, initialData }) {
       }
     }
   }, [initialData]);
+
+  useEffect(() => {
+    calculatePipeWeight();
+  }, [wellParams.casingOD, wellParams.casingID]);
+
+  const calculatePipeWeight = () => {
+    const outerDiameter = parseFloat(wellParams.casingOD);
+    const innerDiameter = parseFloat(wellParams.casingID);
+    
+    if (!isNaN(outerDiameter) && !isNaN(innerDiameter) && outerDiameter > innerDiameter) {
+      const steelDensity = 7850; // кг/м³ - средняя плотность стали
+      const outerRadius = outerDiameter / 2000; // перевод в м
+      const innerRadius = innerDiameter / 2000; // перевод в м
+      
+      // Площадь сечения трубы (м²)
+      const area = Math.PI * (outerRadius * outerRadius - innerRadius * innerRadius);
+      
+      // Вес трубы (кг/м)
+      const weight = area * steelDensity;
+      
+      setWellParams(prev => ({
+        ...prev,
+        casingWeight: weight.toFixed(2)
+      }));
+    }
+  };
 
   const handleParamChange = (e) => {
     const { name, value } = e.target;
@@ -60,13 +78,6 @@ function WellParametersForm({ onNext, initialData }) {
     setCentralizer((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleStepper = (name, delta) => {
-    setWellParams((prev) => ({
-      ...prev,
-      [name]: String(+prev[name] + delta),
-    }));
-  };
-
   const handleClear = () => {
     setWellParams({
       wellNumber: "",
@@ -74,10 +85,6 @@ function WellParametersForm({ onNext, initialData }) {
       field: "",
       runDate: "",
       depth: "",
-      shoeDepth: "",
-      shoeTolerance: "0",
-      hangerDepth: "",
-      hangerTolerance: "0",
       casingOD: "",
       casingWeight: "",
       casingSteel: "",
@@ -91,24 +98,11 @@ function WellParametersForm({ onNext, initialData }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    const { depth, shoeDepth, hangerDepth } = wellParams;
-
+    const { depth } = wellParams;
     const depthNum = parseFloat(depth);
-    const shoeNum = parseFloat(shoeDepth);
-    const hangerNum = parseFloat(hangerDepth);
 
-    if (isNaN(depthNum) || isNaN(shoeNum) || isNaN(hangerNum)) {
-      alert("❌ Все значения глубин должны быть числовыми.");
-      return;
-    }
-
-    if (shoeNum > depthNum) {
-      alert("❌ Глубина башмака не может быть больше глубины скважины.");
-      return;
-    }
-
-    if (hangerNum > shoeNum) {
-      alert("❌ Глубина подвески не может быть ниже глубины башмака.");
+    if (isNaN(depthNum)) {
+      alert("❌ Значение глубины скважины должно быть числовым.");
       return;
     }
 
@@ -116,10 +110,6 @@ function WellParametersForm({ onNext, initialData }) {
       wellParams, 
       centralizer,
       depth: depthNum,
-      shoeDepth: shoeNum,
-      hangerDepth: hangerNum,
-      shoeTolerance: parseFloat(wellParams.shoeTolerance),
-      hangerTolerance: parseFloat(wellParams.hangerTolerance),
     });
   };
 
@@ -200,14 +190,26 @@ function WellParametersForm({ onNext, initialData }) {
           />
         </div>
         <div>
+          <label className="block text-sm font-medium mb-1">Внутренний диаметр колонны (mm)</label>
+          <input
+            name="casingID"
+            placeholder="Внутренний диаметр колонны"
+            value={wellParams.casingID}
+            onChange={handleParamChange}
+            className="input"
+          />
+        </div>
+        <div>
           <label className="block text-sm font-medium mb-1">Вес (kg/m)</label>
           <input
             name="casingWeight"
             placeholder="Вес (kg/m)"
             value={wellParams.casingWeight}
             onChange={handleParamChange}
-            className="input"
+            className="input bg-gray-100"
+            readOnly
           />
+          <p className="text-xs text-gray-500 mt-1">Рассчитывается автоматически</p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Сталь</label>
@@ -215,16 +217,6 @@ function WellParametersForm({ onNext, initialData }) {
             name="casingSteel"
             placeholder="Сталь"
             value={wellParams.casingSteel}
-            onChange={handleParamChange}
-            className="input"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Внутренний диаметр колонны (mm)</label>
-          <input
-            name="casingID"
-            placeholder="Внутренний диаметр колонны"
-            value={wellParams.casingID}
             onChange={handleParamChange}
             className="input"
           />
@@ -240,58 +232,6 @@ function WellParametersForm({ onNext, initialData }) {
           />
         </div>
       </div>
-
-      <h2 className="text-xl font-bold text-blue-700 mt-6">Глубины установки</h2>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Глубина башмака + допуск (м)</label>
-          <div className="flex gap-2 items-center">
-            <input
-              name="shoeDepth"
-              type="number"
-              value={wellParams.shoeDepth}
-              onChange={handleParamChange}
-              className="input w-full"
-            />
-            <div className="flex items-center gap-1">
-              <button type="button" onClick={() => handleStepper("shoeTolerance", -1)} className="px-2 bg-gray-200 rounded">−</button>
-              <input
-                name="shoeTolerance"
-                type="number"
-                value={wellParams.shoeTolerance}
-                onChange={handleParamChange}
-                className="input w-[80px] text-center"
-              />
-              <button type="button" onClick={() => handleStepper("shoeTolerance", 1)} className="px-2 bg-gray-200 rounded">+</button>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Глубина подвески + допуск (м)</label>
-          <div className="flex gap-2 items-center">
-            <input
-              name="hangerDepth"
-              type="number"
-              value={wellParams.hangerDepth}
-              onChange={handleParamChange}
-              className="input w-full"
-            />
-            <div className="flex items-center gap-1">
-              <button type="button" onClick={() => handleStepper("hangerTolerance", -1)} className="px-2 bg-gray-200 rounded">−</button>
-              <input
-                name="hangerTolerance"
-                type="number"
-                value={wellParams.hangerTolerance}
-                onChange={handleParamChange}
-                className="input w-[80px] text-center"
-              />
-              <button type="button" onClick={() => handleStepper("hangerTolerance", 1)} className="px-2 bg-gray-200 rounded">+</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
 
       <h2 className="text-xl font-bold text-blue-700 mt-6">Параметры центраторов</h2>
       <div className="grid grid-cols-3 gap-4">

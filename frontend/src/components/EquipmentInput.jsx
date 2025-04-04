@@ -59,7 +59,7 @@ function SortableItem({ id, index, row, onChange, onRemove }) {
           ✕
         </button>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-4 w-full pl-7 pr-2">
+      <div className="mt-3 grid grid-cols-4 gap-4 w-full pl-7 pr-2">
         <input
           type="number"
           value={row.length}
@@ -79,6 +79,13 @@ function SortableItem({ id, index, row, onChange, onRemove }) {
           value={row.tolerance}
           placeholder="Допуск ±"
           onChange={(e) => onChange(index, "tolerance", e.target.value)}
+          className="input"
+        />
+        <input
+          type="number"
+          value={row.depth}
+          placeholder="Глубина"
+          onChange={(e) => onChange(index, "depth", e.target.value)}
           className="input"
         />
       </div>
@@ -101,7 +108,7 @@ function EquipmentInput({ onChange, initialData = [] }) {
   };
 
   const addRow = () => {
-    const updated = [...rows, { name: "", length: "", interval: "", tolerance: "" }];
+    const updated = [...rows, { name: "", length: "", interval: "", tolerance: "", depth: "" }];
     setRows(updated);
     onChange(updated);
   };
@@ -129,6 +136,15 @@ function EquipmentInput({ onChange, initialData = [] }) {
 
   return (
     <div className="mt-6">
+      <div className="mb-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-md font-semibold text-gray-700">Список оборудования</h3>
+          <p className="text-sm text-blue-700">
+            Перетащите элементы, чтобы изменить порядок. Подвеска должна быть первой, а башмак последним.
+          </p>
+        </div>
+      </div>
+      
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext
           items={rows.map((_, i) => `row-${i}`)}
